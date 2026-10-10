@@ -4,74 +4,41 @@ import {
   ArrowRight,
   Building2,
   CalendarDays,
-  ClipboardList,
   FileText,
   FlaskConical,
   FolderOpen,
   Info,
-  Pill,
   Plus,
-  ScanLine,
   Share2,
   ShieldCheck,
-  Stethoscope,
-  Syringe,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import RecordTypeIcon from '../components/RecordTypeIcon'
+import { EmptyState, ErrorState, LoadingState } from '../components/StateViews'
+import StatusBadge from '../components/StatusBadge'
 import {
   countSharesByStatus,
-  demoPatient,
-  demoRecords,
-  demoShares,
   formatRecordDate,
   getProviderSummaries,
   getRecentRecords,
   recordTypeLabels,
 } from '../data/dashboardData'
-import type { RecordType } from '../data/dashboardData'
+import { useDemoData } from '../data/demoStore'
 
 const RECENT_RECORD_LIMIT = 5
-
-const recordTypeIcons: Record<RecordType, LucideIcon> = {
-  lab_report: FlaskConical,
-  prescription: Pill,
-  consultation_summary: Stethoscope,
-  imaging_report: ScanLine,
-  vaccination: Syringe,
-  discharge_summary: ClipboardList,
-}
 
 type QuickAction = {
   to: string
   title: string
   description: string
   icon: LucideIcon
-  status: string
+  state?: { openAddRecord: boolean }
 }
 
-// Destinations are still placeholder pages, so each action says so.
 const quickActions: QuickAction[] = [
-  {
-    to: '/records',
-    title: 'Browse records',
-    description: 'Open your records list.',
-    icon: FolderOpen,
-    status: 'Page coming soon',
-  },
-  {
-    to: '/records',
-    title: 'Add a record',
-    description: 'Opens Records, where the add-record form will live.',
-    icon: Plus,
-    status: 'Page coming soon',
-  },
-  {
-    to: '/share',
-    title: 'Share records',
-    description: 'Open the sharing center to choose records and a recipient.',
-    icon: Share2,
-    status: 'Page coming soon',
-  },
+  { to: '/records', title: 'Browse records', description: 'Search, filter, and sort your records.', icon: FolderOpen },
+  { to: '/records', title: 'Add a record', description: 'Open the add-record form.', icon: Plus, state: { openAddRecord: true } },
+  { to: '/share', title: 'Share records', description: 'Choose records and a recipient (simulated).', icon: Share2 },
 ]
 
 function getGreeting(hour: number): string {
@@ -84,13 +51,7 @@ function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
 }
 
-type StatCardProps = {
-  icon: LucideIcon
-  label: string
-  value: number
-  hint: string
-  badge?: string
-}
+type StatCardProps = { icon: LucideIcon; label: string; value: number; hint: string; badge?: string }
 
 function StatCard({ icon: StatIcon, label, value, hint, badge }: StatCardProps) {
   return (
@@ -101,27 +62,36 @@ function StatCard({ icon: StatIcon, label, value, hint, badge }: StatCardProps) 
       <p className="dashboard-stat-label">{label}</p>
       <p className="dashboard-stat-value">{value}</p>
       <p className="dashboard-stat-hint">{hint}</p>
-      {badge ? <span className="dashboard-badge dashboard-badge-pending">{badge}</span> : null}
+      {badge ? <StatusBadge tone="amber">{badge}</StatusBadge> : null}
     </li>
   )
 }
 
 export default function DashboardPage() {
-  // Created once when the page first renders, so the date is live but stable.
+  const { status, error, records, shares, profile } = useDemoData()
   const [today] = useState(() => new Date())
 
-  const records = demoRecords
+  if (status === 'loading') {
+    return (
+      <div className="container page">
+        <LoadingState label="Loading your dashboard…" />
+      </div>
+    )
+  }
+  if (status === 'error') {
+    return (
+      <div className="container page">
+        <ErrorState title="The dashboard could not load">{error}</ErrorState>
+      </div>
+    )
+  }
+
   const recentRecords = getRecentRecords(records, RECENT_RECORD_LIMIT)
   const providers = getProviderSummaries(records)
-  const shareCounts = countSharesByStatus(demoShares)
-
-  const longDate = today.toLocaleDateString('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-  const isoDate = today.toLocaleDateString('en-CA') // YYYY-MM-DD in local time
+  const shareCounts = countSharesByStatus(shares, today.getTime())
+  const firstName = profile.display_name.trim().split(/\s+/)[0] || 'there'
+  const longDate = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const isoDate = today.toLocaleDateString('en-CA')
 
   return (
     <div className="container page dashboard-page">
@@ -132,21 +102,20 @@ export default function DashboardPage() {
             <time dateTime={isoDate}>{longDate}</time>
           </p>
           <h1 id="dashboard-welcome-heading">
-            {getGreeting(today.getHours())}, {demoPatient.first_name}
+            {getGreeting(today.getHours())}, {firstName}
           </h1>
           <p className="dashboard-welcome-lead">
-            Your dashboard shows the records you have organized, the providers behind them, and your
-            sharing options, all in one place.
+            Your dashboard shows the records you have organized, the providers behind them, and your sharing options,
+            all in one place.
           </p>
           <p className="dashboard-demo-note">
             <FlaskConical size={16} aria-hidden="true" />
             <span>
-              Demo patient: {demoPatient.full_name} is a fictional person. Every record on this page
-              is sample data.
+              Demo mode: the name, records, and shares here are fictional sample data that you can change. They are
+              kept only in this browser tab and reset when you refresh.
             </span>
           </p>
         </div>
-
         <div className="dashboard-welcome-actions">
           <Link to="/records" className="btn btn-primary">
             <FolderOpen size={18} aria-hidden="true" />
@@ -164,24 +133,14 @@ export default function DashboardPage() {
           Summary
         </h2>
         <ul className="dashboard-stats">
-          <StatCard
-            icon={FileText}
-            label="Total medical records"
-            value={records.length}
-            hint="Fictional sample records"
-          />
-          <StatCard
-            icon={Building2}
-            label="Healthcare providers"
-            value={providers.length}
-            hint="Represented in these records"
-          />
+          <StatCard icon={FileText} label="Total medical records" value={records.length} hint="Fictional sample records" />
+          <StatCard icon={Building2} label="Healthcare providers" value={providers.length} hint="Represented in these records" />
           <StatCard
             icon={Share2}
             label="Active shares"
             value={shareCounts.active}
             hint={`${shareCounts.expired} expired · ${shareCounts.revoked} revoked`}
-            badge="Sample data: sharing is not active yet"
+            badge="Simulated shares, this session only"
           />
         </ul>
       </section>
@@ -198,41 +157,37 @@ export default function DashboardPage() {
             </div>
 
             {recentRecords.length === 0 ? (
-              <div className="dashboard-empty">
-                <FileText size={28} aria-hidden="true" />
-                <p className="dashboard-empty-title">No records yet</p>
-                <p className="muted">
-                  When you add medical records, the newest ones will appear here.
-                </p>
-                <Link to="/records" className="btn btn-secondary btn-sm">
-                  Go to records
-                </Link>
-              </div>
+              <EmptyState
+                icon={FileText}
+                title="No records yet"
+                action={
+                  <Link to="/records" state={{ openAddRecord: true }} className="btn btn-secondary btn-sm">
+                    Add your first record
+                  </Link>
+                }
+              >
+                When you add medical records, the newest ones will appear here.
+              </EmptyState>
             ) : (
               <>
                 <ul className="dashboard-record-list">
-                  {recentRecords.map((record) => {
-                    const TypeIcon = recordTypeIcons[record.record_type]
-                    return (
-                      <li key={record.id} className="dashboard-record">
-                        <span className="dashboard-record-icon">
-                          <TypeIcon size={18} aria-hidden="true" />
-                        </span>
-                        <div className="dashboard-record-body">
-                          <p className="dashboard-record-title">{record.title}</p>
-                          <p className="dashboard-record-meta">
-                            {record.provider_name} ·{' '}
-                            <time dateTime={record.record_date}>
-                              {formatRecordDate(record.record_date)}
-                            </time>
-                          </p>
-                        </div>
-                        <span className="dashboard-badge">
-                          {recordTypeLabels[record.record_type]}
-                        </span>
-                      </li>
-                    )
-                  })}
+                  {recentRecords.map((record) => (
+                    <li key={record.id} className="dashboard-record">
+                      <RecordTypeIcon type={record.record_type} />
+                      <div className="dashboard-record-body">
+                        <p className="dashboard-record-title">
+                          <Link to="/records" state={{ openRecordId: record.id }} className="dashboard-record-link">
+                            {record.title}
+                          </Link>
+                        </p>
+                        <p className="dashboard-record-meta">
+                          {record.provider_name} ·{' '}
+                          <time dateTime={record.record_date}>{formatRecordDate(record.record_date)}</time>
+                        </p>
+                      </div>
+                      <StatusBadge>{recordTypeLabels[record.record_type]}</StatusBadge>
+                    </li>
+                  ))}
                 </ul>
                 <p className="dashboard-record-footnote">
                   Showing the {recentRecords.length} most recent of {records.length} sample records.
@@ -246,16 +201,15 @@ export default function DashboardPage() {
           <section className="card" aria-labelledby="dashboard-actions-heading">
             <h2 id="dashboard-actions-heading">Quick actions</h2>
             <ul className="dashboard-action-list">
-              {quickActions.map(({ to, title, description, icon: ActionIcon, status }) => (
+              {quickActions.map(({ to, title, description, icon: ActionIcon, state }) => (
                 <li key={title}>
-                  <Link to={to} className="dashboard-action">
+                  <Link to={to} state={state} className="dashboard-action">
                     <span className="dashboard-action-icon">
                       <ActionIcon size={18} aria-hidden="true" />
                     </span>
                     <span className="dashboard-action-text">
                       <span className="dashboard-action-title">{title}</span>
                       <span className="dashboard-action-desc">{description}</span>
-                      <span className="dashboard-badge dashboard-badge-pending">{status}</span>
                     </span>
                     <ArrowRight size={16} aria-hidden="true" />
                   </Link>
@@ -294,18 +248,17 @@ export default function DashboardPage() {
               <h2 id="dashboard-privacy-heading">Your records, your choice.</h2>
             </div>
             <p>
-              MediVault is designed to let you pick exactly which records to share, with whom, and
-              for how long.
+              MediVault is designed to let you pick exactly which records to share, with whom, and for how long.
             </p>
             <div className="dashboard-privacy-status">
               <Info size={18} aria-hidden="true" />
               <p>
-                <strong>Not active yet.</strong> Sharing and server-enforced permissions are planned
-                for a later release. Nothing on this page is stored or shared.
+                <strong>Simulation only.</strong> Sharing here is a demo: no server enforces permissions, expiry, or
+                revocation yet, and nothing is stored beyond this browser tab.
               </p>
             </div>
             <Link to="/share" className="dashboard-link">
-              Preview the sharing center
+              Open the sharing center
               <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </section>
